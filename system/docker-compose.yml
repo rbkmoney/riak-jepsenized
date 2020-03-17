@@ -1,0 +1,70 @@
+version: '3.7'
+
+x-default-node:
+  &default-node
+  ulimits:
+    nproc: 65536
+    nofile:
+      soft: 65536
+      hard: 65536
+  privileged: true
+  networks:
+    - jepsen
+
+x-riak-node:
+  &riak-node
+  <<: *default-node
+  build:
+    context: .
+    target: riak
+  labels:
+    com.basho.riak.cluster.name: "jepsen"
+  environment:
+    CLUSTER_NAME: "jepsen"
+    COORDINATOR_NODE: "n1"
+  networks:
+    jepsen:
+      aliases:
+        - riak
+
+services:
+  # Jepsen control node
+  control:
+    <<: *default-node
+    build:
+      context: .
+      target: control
+    volumes:
+      - type: bind
+        source: ../
+        target: /jepsen/
+      - type: bind
+        source: ./.cache/.m2/
+        target: /root/.m2/
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+    working_dir: /jepsen
+
+  # Riak KV cluster
+  n1: # coordinator
+    <<: *riak-node
+    environment:
+      CLUSTER_NAME: "jepsen"
+  n2:
+    <<: *riak-node
+  n3:
+    <<: *riak-node
+  n4:
+    <<: *riak-node
+  n5:
+    <<: *riak-node
+
+  # Spare nodes to be introduced in the cluster later
+  extra1:
+    <<: *riak-node
+  extra2:
+    <<: *riak-node
+
+networks:
+  jepsen: {}
