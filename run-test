@@ -7,6 +7,6 @@ lein run test \
     --keyspace 10 \
     --time-limit 900 \
     --havoc-delay 60 \
-    --havoc-duration 60 \
-    --ring-stable-delay 60 \
+    --havoc-duration 120 \
+    --node-leave-timeout 180 \
     --rate 1
