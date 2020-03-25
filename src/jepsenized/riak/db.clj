@@ -138,7 +138,7 @@
   [node]
   (->> (str "ping -c1 " node " | "
             "awk '/^PING/ {print $3}' | "
-            "sed 's/[()]//g'")
+            "sed -e 's/^.*(//' -e 's/).*$//'")
        (exec-command)
        (str/trim)))
 
