@@ -22,6 +22,11 @@ x-riak-node:
   environment:
     CLUSTER_NAME: "jepsen"
     COORDINATOR_NODE: "n1"
+  volumes:
+    - type: bind
+      source: ./files/riak.user.conf
+      target: /etc/riak/user.conf
+      read_only: true
   networks:
     jepsen:
       aliases:
