@@ -24,8 +24,8 @@
                       v   (riak/value obj)]
                   (assoc op
                          :type :ok
-                         :value (indep/tuple k v)))
-                        ;  :vclock (riak/vclock obj)))
+                         :value (indep/tuple k v)
+                         :vclock (riak/vclock obj)))
           :write (loop []
                    (if-let [objctx (locking seen (get @seen k))]
                      ; races are possible here, but we do not care much about them
@@ -36,8 +36,8 @@
                          (assert (riak/found? new))
                          (reset! objctx new)
                          (assoc op
-                                :type :ok)))
-                                ; :vclock (mapv riak/vclock [old new]))))
+                                :type :ok
+                                :vclock (mapv riak/vclock [old new]))))
                      ; else
                      (do
                        (swap! seen assoc! k (atom {}))
