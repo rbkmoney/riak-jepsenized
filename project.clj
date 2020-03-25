@@ -1,5 +1,5 @@
 (defproject riak-jepsenized "0.1.0-SNAPSHOT"
-  :description "Tool to obliterate Riak KV with Jepsen framework"
+  :description "Obliterate Riak KV with Jepsen framework"
   :url "http://github.com/rbkmoney/riak-jepsenized"
   :license {:name "Apache-2.0"
             :url  "http://www.apache.org/licenses/LICENSE-2.0"}
