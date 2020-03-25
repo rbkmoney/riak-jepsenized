@@ -86,12 +86,16 @@
      (sync->> (bucket-api/set c bucket {:props props})))))
 
 (defn get-object
+  "Fetch an object from riak given bucket and key."
   ([bucket key]
    (let [bucket (byte-string<-utf8-string bucket)
          key    (byte-string<-utf8-string key)]
      (sync->> (object-api/get *client* bucket key {})))))
 
 (defn put-object
+  "Put an object to riak given `bucket`, `key`, and (optionally)
+   previously fetched object `o` under the same `bucket` and `key`,
+   in order to use its vclock to keep writes causally consistent."
   ([bucket key value] (put-object bucket key value nil))
   ([bucket key value o]
    (let [bucket (byte-string<-utf8-string bucket)
@@ -107,6 +111,9 @@
      (sync->> (object-api/put *client* bucket key value opts)))))
 
 (defn delete-object
+  "Delete an object given `bucket`, `key`, and (optionally)
+   previously fetched object `o` under the same `bucket` and `key`,
+   in order to use its vclock to keep writes causally consistent."
   ([bucket key] (delete-object bucket key nil))
   ([bucket key o]
    (let [bucket (byte-string<-utf8-string bucket)
