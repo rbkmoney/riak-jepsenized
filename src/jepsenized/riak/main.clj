@@ -95,9 +95,9 @@
    (cli-utils/pos-int-opt "--havoc-delay SECS" "How long to wait before wreaking havoc?" 30)
    (cli-utils/pos-int-opt "--havoc-duration SECS" "How long to wreak havoc?" 30)
 
-   (cli-utils/pos-int-opt "--ring-stable-delay SECS"
-                          "How long to wait for ring to become stable when nodes are leaving cluster?"
-                          90)
+   (cli-utils/pos-int-opt "--node-leave-timeout SECS"
+                          "How long to wait for node to leave cluster cleanly?"
+                          120)
 
     ; the rest
    [nil "--rate HZ" "Approximate number of request per second, per thread."

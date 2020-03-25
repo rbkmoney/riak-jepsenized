@@ -9,18 +9,22 @@
             [clojure.tools.logging :refer [info warn]]
             [slingshot.slingshot :refer [try+ throw+]]))
 
-(defn- wait-for
+(defn wait-for
   "Waits for `f?` to start return true for `dt` seconds at most."
   ([f? to]
-   (wait-for f? to 5))
+   (wait-for f? to (-> (quot to 10) (max 2) (min 10))))
   ([f? to delay]
    (let [deadline (+ (tt/linear-time) to)]
      (loop []
        (if (< (tt/linear-time) deadline)
          (if-let [condition (f?)]
            condition
-           (do (Thread/sleep (* delay 1000)) (recur)))
-         false)))))
+           (do (Thread/sleep (* delay 1000)) (recur))))))))
+
+(defn wait-until
+  "Like `wait-for` but waits for falsy return."
+  [f? & args]
+  (apply wait-for (comp not f?) args))
 
 (defn- parse-ring-ownership
   "Parses a string into a mapping `nodename->vnodes-num`."
@@ -44,7 +48,7 @@
   "Ensures that the Riak ring is finally stable."
   [node n]
   (let [ownership (get-ring-ownership node)
-        _         (info " *** Ownership @" node "/" n "=" ownership)
+        ;; _         (info " *** Ownership @" node "/" n "=" ownership)
         ownership (->> ownership
                        (vals)
                        (filter pos?))]
@@ -59,7 +63,6 @@
 (def ^:private conf-file "/etc/riak/riak.conf")
 (def ^:private user-conf-file "/etc/riak/user.conf")
 
-
 (defn- wipe-directory
   [dir]
   (c/exec :find dir :-mindepth 1 :-delete))
@@ -70,11 +73,23 @@
        (str/split-lines)
        (filter not-empty)))
 
+(defn- exec-command
+  [line & opts]
+  (let [trace? (some #{:trace} opts)
+        echo?  (some #{:echo} opts)
+        echo?  true ; FIXME
+        flags  (when trace? [:-x])]
+    (when echo? (info ">>>" line))
+    (let [result (apply c/exec :sh :-c (conj flags line))]
+      (when echo? (doseq [r (str/split-lines result)] (info "<<<" r)))
+      result)))
+
 (defn- exec-script
   "Run a script with the help of basic shell, spitting out traces
    of execution to the stderr and failing on first failed statement."
-  [& lines]
-  (c/exec :sh :-c :-ex (str/join "\n" lines)))
+  [& lines-opts]
+  (let [[lines opts] (split-with string? lines-opts)]
+    (mapv #(apply exec-command % opts) lines)))
 
 (defn- append-line
   "Append a line to the end of some file."
@@ -122,14 +137,15 @@
 (defn- resolve-node
   "Resolve node hostname to an IP address in a hackish way."
   [node]
-  (exec-script (str "ping -c1 " node " | ")
-               "awk '/^PING/ {print $3}' | "
-               "sed 's/[()]//g'"))
+  (->> (str "ping -c1 " node " | "
+            "awk '/^PING/ {print $3}' | "
+            "sed 's/[()]//g'")
+       (exec-command)
+       (str/trim)))
 
 (defn- apply-cluster-conf
-  [node cluster-name test]
+  [node cluster-name]
   (info "Applying node-specific configuration...")
-  (reset-file conf-file)
   (doseq [l [(str "nodename = riak@" node)
              (str "distributed_cookie = " cluster-name)
              (str "listener.protobuf.internal = " node ":" client/riak-pb-port)
@@ -150,23 +166,43 @@
 
 (defn- node-online?
   []
-  (->> (exec-script "riak ping || echo offline")
+  (->> (exec-command "riak ping || exit 0")
        (str/trim)
-       (not= "offline")))
+       (= "pong")))
+
+(defn- ring-ready?
+  []
+  (->> (exec-command "riak-admin ring-status || exit 0")
+       (str/split-lines)
+       (some #(str/starts-with? % "Ring Ready: true"))))
+
+(defn- wait-ring-ready
+  [opts]
+  (wait-for ring-ready? (:ring-ready-timeout opts 10)))
+
+(defn- wait-cluster-plan
+  [opts]
+  (wait-until (fn []
+                (->> (exec-command "riak-admin cluster plan")
+                     (str/split-lines)
+                     (some #(str/starts-with? % "Cannot plan"))))
+              (:ring-ready-timeout opts 10)))
 
 (defn- join-cluster
-  [coord-node]
+  [coord-node opts]
   (info "Joining the cluster at" coord-node "...")
-  (exec-script (str "riak-admin cluster join riak@" coord-node)
-               "riak-admin cluster plan"
-               "riak-admin cluster commit"))
+  (wait-ring-ready opts)
+  (exec-command (str "riak-admin cluster join riak@" coord-node))
+  (wait-cluster-plan opts)
+  (exec-command "riak-admin cluster commit" :echo))
 
 (defn- leave-cluster
-  []
+  [opts]
   (info "Leaving the cluster...")
-  (exec-script "riak-admin cluster leave"
-               "riak-admin cluster plan"
-               "riak-admin cluster commit"))
+  (wait-ring-ready opts)
+  (exec-command "riak-admin cluster leave")
+  (wait-cluster-plan opts)
+  (exec-command "riak-admin cluster commit" :echo))
 
 (defn- wait-ring-stable
   [node size to]
@@ -181,21 +217,26 @@
     (let [node (resolve-node node)
           seed (resolve-node (first (:nodes test)))
           size (count (:nodes test))]
-      (apply-cluster-conf node cluster-name conf-file)
+      (reset-file conf-file)
+      (apply-cluster-conf node cluster-name)
       (start-node)
       (core/synchronize test)
-      (when (not= node seed) (join-cluster seed))
-      (wait-ring-stable node size (:ring-stable-delay opts 10))))
+      (when (not= node seed)
+        (locking this (join-cluster seed opts)))
+      (core/synchronize test)))
 
   (teardown! [this test node]
     (let [node (resolve-node node)
           seed (resolve-node (first (:nodes test)))
           size (count (:nodes test))]
       (when (node-online?)
-        (when (not= node seed) (leave-cluster))
-        (wait-ring-stable node size (:ring-stable-delay opts 10))
-        (core/synchronize test)
-        (stop-node))
+        (if-let [leave-timeout (:node-leave-timeout opts)]
+          (do (when (not= node seed)
+                (locking this (leave-cluster opts)))
+              (when-not (wait-until node-online? leave-timeout)
+                (warn "Cannot wait any longer for" node "to leave cluster, shutting down...")
+                (stop-node)))
+          (stop-node)))
       (doseq [dir [log-dir data-dir]]
         (wipe-directory dir))))
 
@@ -211,5 +252,5 @@
 (defn db
   "Riak instance."
   [opts]
-  (->> (select-keys opts [:ring-stable-delay])
+  (->> (select-keys opts [:node-leave-timeout])
        (DB. "jepsen")))
