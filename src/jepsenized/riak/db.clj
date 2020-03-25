@@ -77,7 +77,6 @@
   [line & opts]
   (let [trace? (some #{:trace} opts)
         echo?  (some #{:echo} opts)
-        echo?  true ; FIXME
         flags  (when trace? [:-x])]
     (when echo? (info ">>>" line))
     (let [result (apply c/exec :sh :-c (conj flags line))]
@@ -178,31 +177,32 @@
 
 (defn- wait-ring-ready
   [opts]
-  (wait-for ring-ready? (:ring-ready-timeout opts 10)))
+  (wait-for ring-ready? (:ring-ready-timeout opts)))
 
-(defn- wait-cluster-plan
+(defn- ensure-cluster-commit
   [opts]
-  (wait-until (fn []
-                (->> (exec-command "riak-admin cluster plan")
-                     (str/split-lines)
-                     (some #(str/starts-with? % "Cannot plan"))))
-              (:ring-ready-timeout opts 10)))
+  (wait-for (fn []
+              (->> (exec-script "riak-admin cluster plan"
+                                "riak-admin cluster commit"
+                                :echo)
+                   (last)
+                   (str/split-lines)
+                   (some #(str/starts-with? % "Cluster changes committed"))))
+            (:ring-ready-timeout opts)))
 
 (defn- join-cluster
   [coord-node opts]
   (info "Joining the cluster at" coord-node "...")
   (wait-ring-ready opts)
   (exec-command (str "riak-admin cluster join riak@" coord-node))
-  (wait-cluster-plan opts)
-  (exec-command "riak-admin cluster commit" :echo))
+  (ensure-cluster-commit opts))
 
 (defn- leave-cluster
   [opts]
   (info "Leaving the cluster...")
   (wait-ring-ready opts)
   (exec-command "riak-admin cluster leave")
-  (wait-cluster-plan opts)
-  (exec-command "riak-admin cluster commit" :echo))
+  (ensure-cluster-commit opts))
 
 (defn- wait-ring-stable
   [node size to]
@@ -252,5 +252,7 @@
 (defn db
   "Riak instance."
   [opts]
-  (->> (select-keys opts [:node-leave-timeout])
+  (->> (select-keys opts [:node-leave-timeout
+                          :ring-ready-timeout])
+       (merge {:ring-ready-timeout 15})
        (DB. "jepsen")))

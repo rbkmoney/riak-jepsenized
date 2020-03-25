@@ -25,7 +25,7 @@
   "Join extra nodes to the cluster, effectively running db startup routine
    on each of them when ordered to start, and tearing down each of them
    gracefully when ordered to stop."
-  [extra-nodes stop-db-opts]
+  [extra-nodes db-opts]
   (reify nemesis/Nemesis
     (setup! [this test]
       this)
@@ -33,6 +33,7 @@
     (invoke! [this test op]
       (let [f    (:f op)
             riak (:db test)
+            riak (riak/update-opts riak db-opts) ; override db opts
             size (count extra-nodes)
             ; tweak cyclic barrier with number of _extra_ nodes, instead of total
             test (assoc test :barrier (if (pos? size)
@@ -43,10 +44,9 @@
             :start
             (let [test (update test :nodes #(concat % extra-nodes))] ; append extra nodes
               (c/on-many extra-nodes (db/setup! riak test c/*host*)))
-      
+
             :stop
-            (let [riak (riak/update-opts riak stop-db-opts)] ; override db opts on stop only
-              (c/on-many extra-nodes (db/teardown! riak test c/*host*))))
+            (c/on-many extra-nodes (db/teardown! riak test c/*host*)))
 
           (assoc op
                  :type :info
@@ -98,6 +98,10 @@
    (cli-utils/pos-int-opt "--node-leave-timeout SECS"
                           "How long to wait for node to leave cluster cleanly?"
                           120)
+
+   (cli-utils/pos-int-opt "--ring-ready-timeout SECS"
+                          "How long to wait for ring readiness when altering cluster membership?"
+                          10)
 
     ; the rest
    [nil "--rate HZ" "Approximate number of request per second, per thread."
