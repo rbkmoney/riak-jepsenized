@@ -57,16 +57,14 @@
   (Client. (atom (transient {})) nil bucket nval))
 
 (defn gen-read-write
-  "Random write/read ops for a register over a small field of integers."
+  "Consecutive read/write ops for a register over a small field of integers."
   [space-size]
-  (reify gen/Generator
-    (op [generator test process]
-      (condp < (rand)
-        0.5 {:type  :invoke
-             :f     :read}
-        {:type  :invoke
-         :f     :write
-         :value (rand-int space-size)}))))
+  (gen/flip-flop
+   (fn [test _] {:type  :invoke
+                 :f     :read})
+   (fn [test _] {:type  :invoke
+                 :f     :write
+                 :value (rand-int space-size)})))
 
 (defn workload
   "Instantiate linearizable register test workload."
@@ -76,4 +74,4 @@
     {:name      "riak-register"
      :client    (client bucket nval)
      :checker   (checker/linearizable {:model (model/cas-register)})
-     :generator (gen-read-write 5)}))
+     :generator (gen-read-write 42)}))
