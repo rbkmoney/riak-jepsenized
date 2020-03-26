@@ -58,8 +58,9 @@
               (map #(Math/abs %))
               (every? #(<= % 1))))))
 
-(def ^:private log-dir  ["/var/log/riak"])
-(def ^:private data-dir ["/var/lib/riak"])
+(def ^:private log-dir "/var/log/riak")
+(def ^:private config-dir "/var/lib/riak/generated.configs")
+(def ^:private data-dir "/var/lib/riak")
 (def ^:private conf-file "/etc/riak/riak.conf")
 (def ^:private user-conf-file "/etc/riak/user.conf")
 
@@ -237,12 +238,12 @@
                 (warn "Cannot wait any longer for" node "to leave cluster, shutting down...")
                 (stop-node)))
           (stop-node)))
-      (doseq [dir [log-dir data-dir]]
+      (doseq [dir [data-dir log-dir]]
         (wipe-directory dir))))
 
   db/LogFiles
   (log-files [this test node]
-    (list-directory log-dir)))
+    (mapcat list-directory [config-dir log-dir])))
 
 (defn update-opts
   "Redefine a subset of DB options."
