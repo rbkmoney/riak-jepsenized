@@ -1,0 +1,13 @@
+#!/bin/sh
+
+lein run test \
+    --workload register \
+    --simulate cluster-scaler \
+    --concurrency 60 \
+    --keyspace 10 \
+    --time-limit 900 \
+    --havoc-delay 40 \
+    --havoc-duration 120 \
+    --node-leave-timeout 200 \
+    --ring-ready-timeout 15 \
+    --rate 1
